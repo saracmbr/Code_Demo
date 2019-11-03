@@ -1,0 +1,219 @@
+---
+title: "Sentiment Anaysis of Verbatim data"
+  output: 
+  word_document
+---
+```{r,echo=FALSE, warning=FALSE,message = FALSE}
+library(ggplot2)
+library(ggpubr)
+library(sentimentr)
+library(text2vec)
+library(stringr)
+library(purrr)
+library(tokenizers)
+library(sentimentr)
+library(data.table)
+library(dplyr)
+library(knitr)
+library(rmarkdown)
+library(syuzhet)
+library(dplyr)
+
+comments <- as.data.table(read.csv(file = "comments.csv", header = TRUE, row.names = NULL, encoding = "UTF-8", sep = ",", dec = ".", quote = "\"", comment.char = ""))
+comments$Reason.For.Recommendation.Rating = as.character(comments$Reason.For.Recommendation.Rating)
+
+comments = as.data.table(comments)
+
+
+comments = comments[, .(Sample.Groups, Reason.For.Recommendation.Rating, Recommendation)]
+
+
+temp = comments %>% mutate(recommendation_sentiment = sentiment_by(Reason.For.Recommendation.Rating, averageing.function = average_weighted, adversative.weight = 0.5)$ave_sentiment)
+
+get_anger = function(x) {
+    a = data.frame(emotion = unlist(as.character(emotion_by(x)[ave_emotion > 0][order(-ave_emotion)][1:5]$emotion_type)))
+    val = max(ifelse(as.character(a$emotion)[1] %in% c("sadness", "anger", "disgust", "fear"), 1, 0),
+              ifelse(as.character(a$emotion)[2] %in% c("sadness", "anger", "disgust", "fear"), 1, 0),
+              ifelse(as.character(a$emotion)[3] %in% c("sadness", "anger", "disgust", "fear"), 1, 0),
+              ifelse(as.character(a$emotion)[4] %in% c("sadness", "anger", "disgust", "fear"), 1, 0),
+              ifelse(as.character(a$emotion)[5] %in% c("sadness", "anger", "disgust", "fear"), 1, 0))
+    return(val)
+}
+
+get_joy = function(x) {
+    a = data.frame(emotion = unlist(as.character(emotion_by(x)[ave_emotion > 0][order(-ave_emotion)][1:4]$emotion_type)))
+    val = max(ifelse(as.character(a$emotion)[1] %in% c("joy", "trust", "anticipation"), 1, 0),
+              ifelse(as.character(a$emotion)[2] %in% c("joy", "trust", "anticipation"), 1, 0),
+              ifelse(as.character(a$emotion)[3] %in% c("joy", "trust", "anticipation"), 1, 0),
+              ifelse(as.character(a$emotion)[4] %in% c("joy", "trust", "anticipation"), 1, 0),
+              ifelse(as.character(a$emotion)[5] %in% c("joy", "trust", "anticipation"), 1, 0))
+    return(val)
+}
+
+get_neutral = function(x) {
+    a = data.frame(emotion = unlist(as.character(emotion_by(x)[ave_emotion > 0][order(-ave_emotion)][1:5]$emotion_type)))
+    val = max(ifelse(as.character(a$emotion)[1] %in% c("joy_negated", "trust_negated", "anger_negated", "anticipation_negated", "disgust_negated", "fear_negated", "sadness_negated"), 1, 0),
+              ifelse(as.character(a$emotion)[2] %in% c("joy_negated", "trust_negated", "anger_negated", "anticipation_negated", "disgust_negated", "fear_negated", "sadness_negated"), 1, 0),
+              ifelse(as.character(a$emotion)[3] %in% c("joy_negated", "trust_negated", "anger_negated", "anticipation_negated", "disgust_negated", "fear_negated", "sadness_negated"), 1, 0),
+              ifelse(as.character(a$emotion)[4] %in% c("joy_negated", "trust_negated", "anger_negated", "anticipation_negated", "disgust_negated", "fear_negated", "sadness_negated"), 1, 0),
+              ifelse(as.character(a$emotion)[5] %in% c("joy_negated", "trust_negated", "anger_negated", "anticipation_negated", "disgust_negated", "fear_negated", "sadness_negated"), 1, 0))
+    return(val)
+
+}
+
+temp = comments
+temp = temp %>% mutate(joy_overal = map(Reason.For.Recommendation.Rating, get_joy))
+temp = temp %>% mutate(anger_overal = map(Reason.For.Recommendation.Rating, get_anger))
+temp = temp %>% mutate(neutral_overal = map(Reason.For.Recommendation.Rating, get_neutral))
+
+
+
+comments = as.data.table(temp)
+rm(temp)
+
+
+my_sentiment = function(x) {
+    a = get_sentences(x)
+    b = get_tokens(a)
+    c = mean(get_sentiment(b, method = "nrc"))
+    return(c)
+}
+comments = as.data.table(comments)
+comments$joy_overal = unlist(comments$joy_overal)
+comments$anger_overal = unlist(comments$anger_overal)
+comments$neutral_overal = unlist(comments$neutral_overal)
+
+
+
+
+########################## Recommendation 
+
+##temp = comments[overal_Improve_sentiment < 0,]
+
+comments = comments %>% mutate(syuzhet_overal_sentiment = map(Reason.For.Recommendation.Rating, my_sentiment))
+
+comments$syuzhet_overal_sentiment = unlist(comments$syuzhet_overal_sentiment)
+
+##comments = as.data.table(left_join(comments, temp))
+
+comments = as.data.table(comments %>% mutate(combined_overal_sentiment = ifelse(anger_overal == 0 & recommendation_sentiment < 0, syuzhet_overal_sentiment, recommendation_sentiment)))
+
+
+comments$combined_overal_sentiment = unlist(comments$combined_overal_sentiment)
+```
+
+
+
+```{r,echo=FALSE, warning=FALSE,message = FALSE}
+library(ggpubr)
+ggdensity(cust[combined_overal_sentiment!=0,], "combined_overal_sentiment",
+fill =  c("#00AFBB"),xlab = "Overal Sentiment Satisfaction Score",ylab = "")
+```
+```{r,echo=FALSE, warning=FALSE,message = FALSE}
+library(ggpubr)
+ggtexttable(head(cust[anger_overal == 1, .N, by = Z.Station][order(N, decreasing = TRUE)], 4), rows = NULL, theme = ttheme("mBlue"))
+
+```
+Table below shows the top four companies which had the most customers feeling some type of enjoyment.
+```{r,echo=FALSE, warning=FALSE,message = FALSE}
+library(ggpubr)
+ggtexttable(head(cust[joy_overal==1, .N, by = Z.Station][order(N, decreasing = TRUE)],4), rows = NULL, theme = ttheme("mBlue"))
+```
+Table below shows the top four companies which had the most customers with neutral feelings.
+```{r,echo=FALSE, warning=FALSE,message = FALSE}
+library(ggpubr)
+ggtexttable(head(cust[neutral_overal==1, .N, by = Z.Station][order(N, decreasing = TRUE)],4), rows = NULL, theme = ttheme("mBlue"))
+```
+
+Table below show top four companies which had the most customers with mixed feelings of anger and joy.
+```{r,echo=FALSE, warning=FALSE,message = FALSE}
+library(ggpubr)
+ggtexttable(head(cust[anger_overal==1 & joy_overal==1, .N, by = Z.Station][order(N, decreasing = TRUE)],4), rows = NULL, theme = ttheme("mBlue"))
+```
+
+# Overal Sentiment Ratings
+In the star card sutvey, customers have been asked to provide a overal rating on the service they have recieved.
+
+```{r,echo=FALSE, warning=FALSE,message = FALSE}
+library(ggplot2)
+ggtexttable(cust[Overall.Satisfaction <= 5 & Overall.Satisfaction != '100', .N, by = Overall.Satisfaction][order(-Overall.Satisfaction)], rows = NULL, theme = ttheme("mBlue"))
+   
+```
+
+```{r,echo=FALSE, warning=FALSE,message = FALSE}
+library(ggpubr)
+ggdensity(cust[combined_wow_sentiment!=0,], "combined_overal_sentiment",
+fill =  c("#00AFBB"),xlab = "Overal Sentiment Satisfaction Score",ylab = "")
+```
+Table below shows the top four sites which had the most customers feeling some type of the anger,disgust ot fear.
+```{r,echo=FALSE, warning=FALSE,message = FALSE}
+library(ggpubr)
+ggtexttable(head(cust[anger_wow == 1, .N, by = Z.Station][order(N, decreasing = TRUE)], 4), rows = NULL, theme = ttheme("mBlue"))
+
+```
+Table below shows the top four sites which had the most customers feeling some type of the enjoyment.
+```{r,echo=FALSE, warning=FALSE,message = FALSE}
+library(ggpubr)
+ggtexttable(head(cust[joy_wow==1, .N, by = Z.Station][order(N, decreasing = TRUE)],4), rows = NULL, theme = ttheme("mBlue"))
+```
+Table below shows the top four sites which had the most customers with neutral feelings.
+```{r,echo=FALSE, warning=FALSE,message = FALSE}
+library(ggpubr)
+ggtexttable(head(cust[neutral_wow==1, .N, by = Z.Station][order(N, decreasing = TRUE)],4), rows = NULL, theme = ttheme("mBlue"))
+```
+
+Table below show top four sites which had the most customers with mixed feelings of anger and joy.
+```{r,echo=FALSE, warning=FALSE,message = FALSE}
+library(text2vec)
+library(stringr)
+library(purrr)
+library(tokenizers)
+library(stopwords)
+library(LDAvis)
+name_stopwords = read.csv(file = "C:\Users\CompleteStopWords.csv")
+
+name_stopwords$V1 = as.character(name_stopwords$V1)
+names(name_stopwords)[1] = "stop"
+
+
+stop_words_temp=stopwords::stopwords(language = "en", source = 'smart'
+
+#stop_words_temp = rbind(p, t)
+stop_words = rbind(stop_words_temp, name_stopwords)
+stop_words$stop = as.character(stop_words$stop)
+
+prep_fun = function(x) {
+    x %>%
+    # make text lower case
+    str_to_lower %>%
+    # remove non-alphanumeric symbols
+    #  str_replace_all("[^[:alpha:]]", " ") %>% 
+    # collapse multiple spaces
+    str_replace_all("\\s+", " ") %>%
+    tm::removeNumbers() %>%
+    tokenize_words(stopwords = stop_words$stop)
+}
+
+library(ggpubr)
+comments = as.data.table(comments)
+comments$Reason.For.Recommendation.Rating = as.character(comments$Reason.For.Recommendation.Rating)
+mycoments = comments[!(Reason.For.Recommendation.Rating == ""), Reason.For.Recommendation.Rating]
+comments_commnets = prep_fun(as.character(mycoments))
+
+it = itoken(comments_commnets, progressbar = FALSE)
+v = create_vocabulary(it) %>%
+    prune_vocabulary(term_count_min = 20, doc_proportion_max = 0.1)
+vectorizer = vocab_vectorizer(v)
+dtm = create_dtm(it, vectorizer, type = "dgTMatrix")
+
+
+lda_model = LDA$new(n_topics = 3, doc_topic_prior = 0.1, topic_word_prior = 0.01)
+doc_topic_distr =
+    lda_model$fit_transform(x = dtm, n_iter = 1000,
+                          convergence_tol = 0.001, n_check_convergence = 25,
+                          progressbar = FALSE)
+
+df = lda_model$get_top_words(n = 40, topic_number = c(1:3), lambda = 0.25)
+
+ggtexttable(head(cust[anger_wow==1 & joy_wow==1, .N, by = Z.Station][order(N, decreasing = TRUE)],4), rows = NULL, theme = ttheme("mBlue"))
+```
